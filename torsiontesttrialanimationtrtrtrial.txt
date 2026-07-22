@@ -1,0 +1,557 @@
+// Torsion Test on Steel Rods & Calculator Simulator
+// Android Processing (APDE) Code
+
+int currentScreen = 0; // 0=Table, 1=Auto-Simulator, 2=Steps Guide, 3=Formulas, 4=Math Anim
+
+// Screen 1 UI (Main Menu / Table)
+Button btnGoCalc;
+Button btnGoSteps;
+Button btnGoFormulas;
+Button btnGoMathAnim;
+
+// Shared Navigation & Tabs
+Button btnBack; 
+Button btn10, btn20, btn30, btn40;
+String currentAngle = "10"; 
+
+// --------------------------------------------------------
+// SIMULATOR VARIABLES (Screen 1)
+// --------------------------------------------------------
+String stepLabel = "Waiting to Start...";
+String currentTopLcd = "";
+String currentBotLcd = "0.";
+Button btnSpeedDown, btnSpeedUp;
+float simSpeed = 1.0; 
+boolean isShiftActive = false; 
+boolean isAlphaActive = false; 
+ArrayList<CalcKey> calcKeys = new ArrayList<CalcKey>();
+HashMap<String, CalcKey> keyMap = new HashMap<String, CalcKey>();
+boolean isSimulating = false;
+ArrayList<SeqBlock> activeSeq = new ArrayList<SeqBlock>();
+int animSeqIndex = 0;
+int animKeyIndex = 0;
+long nextActionTime = 0;
+
+// --------------------------------------------------------
+// MATH ANIMATION VARIABLES (Screen 4)
+// --------------------------------------------------------
+int mathState = 0; 
+long mathStateTimer = 0;
+int mathDuration = 2000;
+Button btnReplayMath;
+
+void setup() {
+  fullScreen();
+  orientation(PORTRAIT);
+  textAlign(CENTER, CENTER);
+  
+  // Initialize Main Menu Buttons (Adjusted heights to fit 4 buttons)
+  btnGoCalc     = new Button(width*0.1, height * 0.65, width*0.8, height*0.065, "Go to Auto-Simulator", color(25, 118, 210));
+  btnGoSteps    = new Button(width*0.1, height * 0.73, width*0.8, height*0.065, "View Step-by-Step Guide", color(40, 167, 69));
+  btnGoFormulas = new Button(width*0.1, height * 0.81, width*0.8, height*0.065, "View Formulas & Constants", color(142, 68, 173));
+  btnGoMathAnim = new Button(width*0.1, height * 0.89, width*0.8, height*0.065, "Visual Math Flow Animation", color(230, 126, 34));
+  
+  btnBack = new Button(width*0.05, height*0.02, width*0.25, height*0.06, "< Back", color(200, 50, 50));
+  btnReplayMath = new Button(width*0.7, height*0.02, width*0.25, height*0.06, "Replay", color(52, 73, 94));
+  
+  // 4 Top Tabs for Torsion Angles
+  float btnW = width * 0.21;
+  float btnY = height * 0.11;
+  float gap = width * 0.02;
+  btn10 = new Button(width*0.05, btnY, btnW, height*0.055, "10°", color(243, 156, 18));
+  btn20 = new Button(width*0.05 + btnW + gap, btnY, btnW, height*0.055, "20°", color(211, 84, 0));
+  btn30 = new Button(width*0.05 + 2*(btnW + gap), btnY, btnW, height*0.055, "30°", color(192, 57, 43));
+  btn40 = new Button(width*0.05 + 3*(btnW + gap), btnY, btnW, height*0.055, "40°", color(108, 52, 131));
+  
+  // Speed Controls for Simulator
+  btnSpeedDown = new Button(width*0.05, height*0.25, width*0.25, height*0.05, "Slower (-)", color(108, 117, 125));
+  btnSpeedUp   = new Button(width*0.70, height*0.25, width*0.25, height*0.05, "Faster (+)", color(108, 117, 125));
+  
+  initCalculatorKeys();
+}
+
+void draw() {
+  background(233, 236, 239);
+  
+  if (currentScreen == 0) {
+    drawTableScreen();
+  } else if (currentScreen == 1) {
+    drawCalcScreen();
+    updateSimulation();
+  } else if (currentScreen == 2) {
+    drawStepsScreen();
+  } else if (currentScreen == 3) {
+    drawFormulaScreen();
+  } else if (currentScreen == 4) {
+    drawMathAnimScreen();
+    updateMathAnim();
+  }
+}
+
+// --------------------------------------------------------
+// SCREEN 0: TABLE VIEW
+// --------------------------------------------------------
+void drawTableScreen() {
+  fill(44, 62, 80);
+  textSize(width * 0.065);
+  text("Torsion Test on Steel Rods", width/2, height * 0.06);
+  
+  float startY = height * 0.13;
+  float rowH = height * 0.08; 
+  stroke(50);
+  strokeWeight(2);
+  
+  float[] wRatios = {0.12, 0.25, 0.28, 0.35};
+  String[] headers = {"S.No", "Angle(θ)°", "Torque(T)\n(kg.m)", "Rigidity (G)\n[x 10⁴ N/mm²]"};
+  String[][] data = {
+    {"1", "10", "3.8", "6.530"},
+    {"2", "20", "9", "7.730"},
+    {"3", "30", "14", "8.015"},
+    {"4", "40", "18.4", "7.901"}
+  };
+  
+  fill(220); rect(width*0.02, startY, width*0.96, rowH);
+  fill(0); textSize(width * 0.035);
+  
+  float currentX = width * 0.02;
+  for(int i=0; i<4; i++) {
+    float cw = width * 0.96 * wRatios[i];
+    text(headers[i], currentX + cw/2, startY + rowH/2);
+    if (i > 0) line(currentX, startY, currentX, startY + rowH * 5);
+    currentX += cw;
+  }
+  noFill(); rect(width*0.02, startY, width*0.96, rowH * 5);
+  
+  for(int r=0; r<4; r++) {
+    float ry = startY + rowH*(r+1);
+    fill(255); rect(width*0.02, ry, width*0.96, rowH);
+    fill(0); currentX = width * 0.02;
+    for(int i=0; i<4; i++) {
+      float cw = width * 0.96 * wRatios[i];
+      textSize(width * 0.04);
+      text(data[r][i], currentX + cw/2, ry + rowH/2);
+      currentX += cw;
+    }
+  }
+  
+  btnGoCalc.draw();
+  btnGoSteps.draw();
+  btnGoFormulas.draw();
+  btnGoMathAnim.draw();
+}
+
+// --------------------------------------------------------
+// SCREEN 1: AUTO CALCULATOR SIMULATOR
+// --------------------------------------------------------
+void drawCalcScreen() {
+  btnBack.draw();
+  fill(44, 62, 80); textSize(width * 0.045);
+  text("Auto Flow Simulator", width*0.65, height*0.05);
+  
+  btn10.draw(); btn20.draw(); btn30.draw(); btn40.draw();
+  
+  fill(248, 249, 250); stroke(200); rect(width*0.05, height*0.175, width*0.9, height*0.06, 8);
+  fill(40, 167, 69); textSize(width * 0.035);
+  text(stepLabel, width/2, height*0.205);
+  
+  btnSpeedDown.draw(); btnSpeedUp.draw();
+  fill(44, 62, 80); textSize(width * 0.035);
+  text("Speed: " + nf(simSpeed, 1, 1) + "x", width/2, height*0.275);
+  
+  float calcY = height * 0.31; float calcH = height * 0.68;
+  fill(34, 38, 41); rect(width*0.05, calcY, width*0.9, calcH, 20, 20, 50, 50);
+  fill(255); textSize(width * 0.038);
+  text("MAHARAJA POLYTECHNIC CALCULATOR", width/2, calcY + height*0.03);
+  
+  fill(156, 181, 156); stroke(10); strokeWeight(4);
+  rect(width*0.1, calcY + height*0.055, width*0.8, height*0.085, 5);
+  
+  textAlign(LEFT, TOP); textSize(width * 0.03); fill(30);
+  if (isShiftActive) text("S", width*0.11, calcY + height*0.06);
+  textSize(width * 0.045); text(currentTopLcd, width*0.12, calcY + height*0.08);
+  textAlign(RIGHT, BOTTOM); textSize(width * 0.07); text(currentBotLcd, width*0.88, calcY + height*0.135);
+  
+  textAlign(CENTER, CENTER);
+  for (CalcKey k : calcKeys) k.draw();
+}
+
+// --------------------------------------------------------
+// SCREEN 2: STEP-BY-STEP KEY SEQUENCE
+// --------------------------------------------------------
+void drawStepsScreen() {
+  btnBack.draw();
+  fill(44, 62, 80); textSize(width * 0.05); text("Button Press Guide", width*0.65, height*0.05);
+  
+  btn10.draw(); btn20.draw(); btn30.draw(); btn40.draw();
+  
+  fill(255); stroke(200); rect(width*0.02, height*0.19, width*0.96, height*0.79, 10);
+  
+  float startY = height * 0.20; float gap = height * 0.19;
+  String[][] steps = getStepsFor(currentAngle);
+  
+  textAlign(LEFT, TOP);
+  for(int i = 0; i < steps.length; i++) {
+     fill(44, 62, 80); textSize(width * 0.038); text(steps[i][0], width * 0.05, startY + (i * gap));
+     fill(192, 57, 43); textSize(width * 0.035); text(steps[i][1], width * 0.05, startY + (i * gap) + height*0.035);
+     fill(40, 167, 69); textSize(width * 0.035); text(steps[i][2], width * 0.05, startY + (i * gap) + height*0.075);
+     if (i < steps.length - 1) {
+       stroke(220); line(width*0.05, startY + (i * gap) + height*0.165, width*0.95, startY + (i * gap) + height*0.165);
+     }
+  }
+  textAlign(CENTER, CENTER);
+}
+
+// --------------------------------------------------------
+// SCREEN 3: FORMULAS & CONSTANTS 
+// --------------------------------------------------------
+void drawFormulaScreen() {
+  btnBack.draw();
+  fill(44, 62, 80); textSize(width * 0.06); text("Formulas & Constants", width/2, height * 0.05);
+  fill(255); stroke(200); rect(width*0.04, height*0.12, width*0.92, height*0.82, 15);
+
+  textAlign(LEFT, TOP);
+  float textX = width * 0.08; float textY = height * 0.15; float lineSp = height * 0.06;
+
+  fill(0); textSize(width * 0.05); text("1. Given Dimensions:", textX, textY);
+  fill(80); textSize(width * 0.045); text("Diameter (d) = 10 mm", textX, textY + lineSp); text("Length (l) = 300 mm", textX, textY + lineSp*1.7);
+
+  fill(0); textSize(width * 0.05); text("2. Polar Moment of Inertia (J):", textX, textY + lineSp*3.2);
+  fill(80); textSize(width * 0.045); text("J = (π / 32) * d⁴", textX, textY + lineSp*4.2); text("J = (π / 32) * 10⁴ = 981.75 mm⁴", textX, textY + lineSp*5.2);
+
+  fill(0); textSize(width * 0.05); text("3. Torsional Rigidity (G):", textX, textY + lineSp*6.7);
+  fill(80); textSize(width * 0.045); text("G = (T * l) / (J * θ)  [N/mm²]", textX, textY + lineSp*7.7);
+
+  fill(0); textSize(width * 0.05); text("4. Unit Conversions:", textX, textY + lineSp*9.2);
+  fill(80); textSize(width * 0.04);
+  text("• Torque: kg.m ➔ N.mm (x 9.81 x 10³)", textX, textY + lineSp*10.2);
+  text("• Angle: deg ➔ rad (x π / 180)", textX, textY + lineSp*11.2);
+
+  fill(250, 240, 230); noStroke(); rect(width*0.08, height*0.84, width*0.84, height*0.08, 10);
+  fill(192, 57, 43); textSize(width * 0.05); textAlign(CENTER, CENTER);
+  text("Average G = 7.544 x 10⁴ N/mm²", width/2, height * 0.88);
+}
+
+
+// --------------------------------------------------------
+// SCREEN 4: VISUAL MATH FLOW (BODMAS ANIMATION)
+// --------------------------------------------------------
+void startMathAnim() {
+  mathState = 0;
+  mathStateTimer = millis();
+}
+
+void updateMathAnim() {
+  if (millis() - mathStateTimer > mathDuration) {
+    mathState++;
+    if (mathState > 7) mathState = 7; // Cap at final state
+    mathStateTimer = millis();
+  }
+}
+
+void drawArrow(float x1, float y1, float x2, float y2) {
+  stroke(41, 128, 185); strokeWeight(4);
+  line(x1, y1, x2, y2);
+  pushMatrix();
+  translate(x2, y2);
+  float a = atan2(y1-y2, x1-x2);
+  rotate(a);
+  fill(41, 128, 185); noStroke();
+  triangle(0, 0, 15, 8, 15, -8);
+  popMatrix();
+}
+
+void drawFraction(String n, String d, float x, float y, float s) {
+  textAlign(CENTER, CENTER); textSize(s);
+  float nw = textWidth(n); float dw = textWidth(d);
+  float mw = max(nw, dw) + 20;
+  fill(0); 
+  text(n, x, y - s*0.8);
+  text(d, x, y + s*0.8);
+  stroke(0); strokeWeight(3);
+  line(x - mw/2, y, x + mw/2, y);
+}
+
+void drawMathAnimScreen() {
+  btnBack.draw();
+  btnReplayMath.draw();
+  btn10.draw(); btn20.draw(); btn30.draw(); btn40.draw();
+  
+  // Angle specific values
+  String T="", numF="", denF="", numR="", denR="", gR="", gF="";
+  if (currentAngle.equals("10")) { T="3.8"; numF="3.8 x 9.81 x 10³ x 300"; denF="981.75 x (10 x π/180)"; numR="11183400"; denR="171.347"; gR="65267.5"; gF="6.53 x 10⁴"; }
+  else if (currentAngle.equals("20")) { T="9.0"; numF="9 x 9.81 x 10³ x 300"; denF="981.75 x (20 x π/180)"; numR="26487000"; denR="342.694"; gR="77290.4"; gF="7.73 x 10⁴"; }
+  else if (currentAngle.equals("30")) { T="14.0"; numF="14 x 9.81 x 10³ x 300"; denF="981.75 x (30 x π/180)"; numR="41202000"; denR="514.041"; gR="80153.0"; gF="8.015 x 10⁴"; }
+  else if (currentAngle.equals("40")) { T="18.4"; numF="18.4 x 9.81 x 10³ x 300"; denF="981.75 x (40 x π/180)"; numR="54151200"; denR="685.388"; gR="79008.0"; gF="7.901 x 10⁴"; }
+
+  float topY = height*0.3;
+  float midY = height*0.55;
+  float botY = height*0.8;
+  
+  fill(44, 62, 80); textSize(width * 0.05);
+  text("Step-by-Step Visualization", width/2, height*0.19);
+  
+  float p = constrain((float)(millis() - mathStateTimer) / mathDuration, 0, 1);
+  
+  // --- STATE RENDERING ---
+  
+  // 1. TOP BOX (Main Formula)
+  if (mathState <= 2) {
+    fill(236, 240, 241); stroke(189, 195, 199); strokeWeight(2);
+    rect(width*0.05, height*0.22, width*0.9, height*0.16, 10);
+    fill(41, 128, 185); textSize(width*0.06); text("G =", width*0.15, topY);
+    if (mathState == 0) drawFraction("T x 9.81 x 10³ x L", "J x (θ x π/180)", width*0.55, topY, width*0.045);
+    if (mathState == 1) drawFraction(numF, denF, width*0.55, topY, width*0.045);
+  }
+  
+  // 2. THROWING TO MID BOXES
+  if (mathState == 2) {
+    drawArrow(width*0.3, topY+height*0.08, width*0.25, midY-height*0.06); // To Num
+    drawArrow(width*0.7, topY+height*0.08, width*0.75, midY-height*0.06); // To Den
+    float lx = lerp(width*0.55, width*0.25, p); float ly = lerp(topY, midY, p);
+    float rx = lerp(width*0.55, width*0.75, p); float ry = lerp(topY, midY, p);
+    fill(192, 57, 43); textSize(width*0.035);
+    text(numF, lx, ly); text(denF, rx, ry);
+  }
+  
+  // 3. SOLVING IN MID BOXES
+  if (mathState >= 3 && mathState <= 5) {
+    // Left Box (Numerator)
+    fill(253, 235, 208); stroke(243, 156, 18); rect(width*0.02, height*0.45, width*0.46, height*0.2, 10);
+    fill(0); textSize(width*0.035); text("Numerator", width*0.25, height*0.48);
+    if (mathState == 3) {
+      fill(192, 57, 43); textSize(width*0.035); text(numF, width*0.25, midY + height*0.03);
+    } else {
+      fill(39, 174, 96); textSize(width*0.05); text(numR, width*0.25, midY + height*0.03);
+    }
+    
+    // Right Box (Denominator)
+    fill(212, 230, 241); stroke(41, 128, 185); rect(width*0.52, height*0.45, width*0.46, height*0.2, 10);
+    fill(0); textSize(width*0.035); text("Denominator", width*0.75, height*0.48);
+    if (mathState == 3) {
+      fill(192, 57, 43); textSize(width*0.035); text(denF, width*0.75, midY + height*0.03);
+    } else {
+      fill(39, 174, 96); textSize(width*0.05); text(denR, width*0.75, midY + height*0.03);
+    }
+  }
+  
+  // 4. THROWING TO BOT BOX
+  if (mathState == 5) {
+    drawArrow(width*0.25, midY+height*0.1, width*0.5, botY-height*0.1);
+    drawArrow(width*0.75, midY+height*0.1, width*0.5, botY-height*0.1);
+    float lx = lerp(width*0.25, width*0.5, p); float ly = lerp(midY, botY - height*0.04, p);
+    float rx = lerp(width*0.75, width*0.5, p); float ry = lerp(midY, botY + height*0.04, p);
+    fill(39, 174, 96); textSize(width*0.05);
+    text(numR, lx, ly); text(denR, rx, ry);
+  }
+  
+  // 5. SOLVING BOT BOX (Final G)
+  if (mathState >= 6) {
+    fill(233, 247, 239); stroke(39, 174, 96); strokeWeight(3);
+    rect(width*0.1, height*0.7, width*0.8, height*0.2, 10);
+    fill(41, 128, 185); textSize(width*0.06); text("G =", width*0.2, botY);
+    
+    if (mathState == 6) {
+      drawFraction(numR, denR, width*0.6, botY, width*0.05);
+    } else if (mathState >= 7) {
+      fill(142, 68, 173); textSize(width*0.07);
+      text(gF, width*0.6, botY);
+      fill(0); textSize(width*0.04); text("(Standard Form)", width*0.6, botY + height*0.06);
+    }
+  }
+}
+
+
+// --------------------------------------------------------
+// DATA PROVIDER (Used by Screen 2)
+// --------------------------------------------------------
+String[][] getStepsFor(String angle) {
+  if (angle.equals("10")) {
+     return new String[][] {
+       {"Step 1: Calculate Numerator (T * l converted)", "Formula: 3.8 * 9.81 * 10³ * 300", "[3][.][8] [X] [9][.][8][1] [X] [1][0][0][0] [X] [3][0][0] [=]\n➔ 11183400"},
+       {"Step 2: Calculate Denominator (J * θ converted)", "Formula: 981.75 * (10 * π/180)", "[9][8][1][.][7][5] [X] [(] [SHIFT][EXP] [÷] [1][8][0] [X] [1][0] [)] [=]\n➔ 171.347"},
+       {"Step 3: Calculate Rigidity G (Num ÷ Denom)", "Formula: 11183400 ÷ 171.347", "[1][1][1][8][3][4][0][0] [÷] [Ans] [=]\n➔ 65267.5"},
+       {"Step 4: Format Final Answer (To x 10⁴)", "Formula: 65267.5 ÷ 10000", "[Ans] [÷] [1][0][0][0][0] [=]\n➔ 6.526 ➔ (6.53 x 10⁴)"}
+     };
+  } else if (angle.equals("20")) {
+     return new String[][] {
+       {"Step 1: Calculate Numerator (T * l converted)", "Formula: 9 * 9.81 * 10³ * 300", "[9] [X] [9][.][8][1] [X] [1][0][0][0] [X] [3][0][0] [=]\n➔ 26487000"},
+       {"Step 2: Calculate Denominator (J * θ converted)", "Formula: 981.75 * (20 * π/180)", "[9][8][1][.][7][5] [X] [(] [SHIFT][EXP] [÷] [1][8][0] [X] [2][0] [)] [=]\n➔ 342.694"},
+       {"Step 3: Calculate Rigidity G (Num ÷ Denom)", "Formula: 26487000 ÷ 342.694", "[2][6][4][8][7][0][0][0] [÷] [Ans] [=]\n➔ 77290.4"},
+       {"Step 4: Format Final Answer (To x 10⁴)", "Formula: 77290.4 ÷ 10000", "[Ans] [÷] [1][0][0][0][0] [=]\n➔ 7.729 ➔ (7.73 x 10⁴)"}
+     };
+  } else if (angle.equals("30")) {
+     return new String[][] {
+       {"Step 1: Calculate Numerator (T * l converted)", "Formula: 14 * 9.81 * 10³ * 300", "[1][4] [X] [9][.][8][1] [X] [1][0][0][0] [X] [3][0][0] [=]\n➔ 41202000"},
+       {"Step 2: Calculate Denominator (J * θ converted)", "Formula: 981.75 * (30 * π/180)", "[9][8][1][.][7][5] [X] [(] [SHIFT][EXP] [÷] [1][8][0] [X] [3][0] [)] [=]\n➔ 514.041"},
+       {"Step 3: Calculate Rigidity G (Num ÷ Denom)", "Formula: 41202000 ÷ 514.041", "[4][1][2][0][2][0][0][0] [÷] [Ans] [=]\n➔ 80153.0"},
+       {"Step 4: Format Final Answer (To x 10⁴)", "Formula: 80153.0 ÷ 10000", "[Ans] [÷] [1][0][0][0][0] [=]\n➔ 8.015 ➔ (8.015 x 10⁴)"}
+     };
+  } else {
+     return new String[][] {
+       {"Step 1: Calculate Numerator (T * l converted)", "Formula: 18.4 * 9.81 * 10³ * 300", "[1][8][.][4] [X] [9][.][8][1] [X] [1][0][0][0] [X] [3][0][0] [=]\n➔ 54151200"},
+       {"Step 2: Calculate Denominator (J * θ converted)", "Formula: 981.75 * (40 * π/180)", "[9][8][1][.][7][5] [X] [(] [SHIFT][EXP] [÷] [1][8][0] [X] [4][0] [)] [=]\n➔ 685.388"},
+       {"Step 3: Calculate Rigidity G (Num ÷ Denom)", "Formula: 54151200 ÷ 685.388", "[5][4][1][5][1][2][0][0] [÷] [Ans] [=]\n➔ 79008.0"},
+       {"Step 4: Format Final Answer (To x 10⁴)", "Formula: 79008.0 ÷ 10000", "[Ans] [÷] [1][0][0][0][0] [=]\n➔ 7.901 ➔ (7.901 x 10⁴)"}
+     };
+  }
+}
+
+// --------------------------------------------------------
+// AUTO-SIMULATOR ENGINE
+// --------------------------------------------------------
+void updateSimulation() {
+  if (!isSimulating) return;
+  if (millis() > nextActionTime) {
+    if (animSeqIndex >= activeSeq.size()) {
+      isSimulating = false; isShiftActive = false; return;
+    }
+    SeqBlock block = activeSeq.get(animSeqIndex);
+    if (animKeyIndex < block.keys.length) {
+      String keyStr = block.keys[animKeyIndex];
+      if (keyMap.containsKey(keyStr)) keyMap.get(keyStr).flash(); 
+      if (keyStr.equals("SHIFT")) isShiftActive = true;
+      else {
+        if (!keyStr.equals("=") && !keyStr.equals("AC")) {
+          String disp = keyStr;
+          if (isShiftActive) { if (disp.equals("EXP")) disp = "π"; isShiftActive = false; }
+          if (disp.equals("X")) disp = "*";
+          currentTopLcd += disp;
+        } else if (keyStr.equals("AC")) {
+          currentTopLcd = ""; isShiftActive = false;
+        }
+      }
+      animKeyIndex++; nextActionTime = millis() + (long)(450 / simSpeed); 
+    } else {
+      currentTopLcd = block.topStr; currentBotLcd = block.botStr;
+      animKeyIndex = 0; animSeqIndex++; nextActionTime = millis() + (long)(1500 / simSpeed); 
+    }
+  }
+}
+
+void startSimulation(String angle) {
+  isSimulating = true; isShiftActive = false; animSeqIndex = 0; animKeyIndex = 0;
+  currentTopLcd = ""; currentBotLcd = "0."; activeSeq.clear();
+  if (angle.equals("10")) {
+    stepLabel = "Solving Angle = 10° (T=3.8)";
+    activeSeq.add(new SeqBlock(new String[]{"3", ".", "8", "X", "9", ".", "8", "1", "X", "1", "0", "0", "0", "X", "3", "0", "0", "="}, "3.8*9.81*1000*300", "11183400."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "9", "8", "1", ".", "7", "5", "X", "(", "SHIFT", "EXP", "÷", "1", "8", "0", "X", "1", "0", ")", "="}, "981.75*(π÷180*10)", "171.347"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "1", "1", "1", "8", "3", "4", "0", "0", "÷", "Ans", "="}, "11183400÷Ans", "65267.5"));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "0", "0", "0", "="}, "Ans÷10000", "6.526"));
+  } else if (angle.equals("20")) {
+    stepLabel = "Solving Angle = 20° (T=9)";
+    activeSeq.add(new SeqBlock(new String[]{"9", "X", "9", ".", "8", "1", "X", "1", "0", "0", "0", "X", "3", "0", "0", "="}, "9*9.81*1000*300", "26487000."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "9", "8", "1", ".", "7", "5", "X", "(", "SHIFT", "EXP", "÷", "1", "8", "0", "X", "2", "0", ")", "="}, "981.75*(π÷180*20)", "342.694"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "2", "6", "4", "8", "7", "0", "0", "0", "÷", "Ans", "="}, "26487000÷Ans", "77290.4"));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "0", "0", "0", "="}, "Ans÷10000", "7.729"));
+  } else if (angle.equals("30")) {
+    stepLabel = "Solving Angle = 30° (T=14)";
+    activeSeq.add(new SeqBlock(new String[]{"1", "4", "X", "9", ".", "8", "1", "X", "1", "0", "0", "0", "X", "3", "0", "0", "="}, "14*9.81*1000*300", "41202000."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "9", "8", "1", ".", "7", "5", "X", "(", "SHIFT", "EXP", "÷", "1", "8", "0", "X", "3", "0", ")", "="}, "981.75*(π÷180*30)", "514.041"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "4", "1", "2", "0", "2", "0", "0", "0", "÷", "Ans", "="}, "41202000÷Ans", "80153.0"));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "0", "0", "0", "="}, "Ans÷10000", "8.015"));
+  } else if (angle.equals("40")) {
+    stepLabel = "Solving Angle = 40° (T=18.4)";
+    activeSeq.add(new SeqBlock(new String[]{"1", "8", ".", "4", "X", "9", ".", "8", "1", "X", "1", "0", "0", "0", "X", "3", "0", "0", "="}, "18.4*9.81*1000*300", "54151200."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "9", "8", "1", ".", "7", "5", "X", "(", "SHIFT", "EXP", "÷", "1", "8", "0", "X", "4", "0", ")", "="}, "981.75*(π÷180*40)", "685.388"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "5", "4", "1", "5", "1", "2", "0", "0", "÷", "Ans", "="}, "54151200÷Ans", "79008.0"));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "0", "0", "0", "="}, "Ans÷10000", "7.901"));
+  }
+  nextActionTime = millis() + 500;
+}
+
+// --------------------------------------------------------
+// INPUT HANDLING
+// --------------------------------------------------------
+void mousePressed() {
+  if (currentScreen == 0) {
+    if (btnGoCalc.isClicked(mouseX, mouseY)) currentScreen = 1;
+    if (btnGoSteps.isClicked(mouseX, mouseY)) currentScreen = 2;
+    if (btnGoFormulas.isClicked(mouseX, mouseY)) currentScreen = 3;
+    if (btnGoMathAnim.isClicked(mouseX, mouseY)) { currentScreen = 4; startMathAnim(); }
+  } else if (currentScreen == 1) {
+    if (btnBack.isClicked(mouseX, mouseY)) { currentScreen = 0; isSimulating = false; isShiftActive = false; }
+    if (btnSpeedDown.isClicked(mouseX, mouseY)) simSpeed = max(0.5, simSpeed - 0.5); 
+    if (btnSpeedUp.isClicked(mouseX, mouseY)) simSpeed = min(3.0, simSpeed + 0.5); 
+    if (btn10.isClicked(mouseX, mouseY)) startSimulation("10");
+    if (btn20.isClicked(mouseX, mouseY)) startSimulation("20");
+    if (btn30.isClicked(mouseX, mouseY)) startSimulation("30");
+    if (btn40.isClicked(mouseX, mouseY)) startSimulation("40");
+    for (CalcKey k : calcKeys) if (k.isClicked(mouseX, mouseY)) k.flash();
+  } else if (currentScreen == 2) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+    if (btn10.isClicked(mouseX, mouseY)) currentAngle = "10";
+    if (btn20.isClicked(mouseX, mouseY)) currentAngle = "20";
+    if (btn30.isClicked(mouseX, mouseY)) currentAngle = "30";
+    if (btn40.isClicked(mouseX, mouseY)) currentAngle = "40";
+  } else if (currentScreen == 3) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+  } else if (currentScreen == 4) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+    if (btnReplayMath.isClicked(mouseX, mouseY)) startMathAnim();
+    if (btn10.isClicked(mouseX, mouseY)) { currentAngle = "10"; startMathAnim(); }
+    if (btn20.isClicked(mouseX, mouseY)) { currentAngle = "20"; startMathAnim(); }
+    if (btn30.isClicked(mouseX, mouseY)) { currentAngle = "30"; startMathAnim(); }
+    if (btn40.isClicked(mouseX, mouseY)) { currentAngle = "40"; startMathAnim(); }
+  }
+}
+
+// --------------------------------------------------------
+// DATA CLASSES & UI HELPERS
+// --------------------------------------------------------
+class SeqBlock {
+  String[] keys; String topStr, botStr;
+  SeqBlock(String[] k, String t, String b) { keys = k; topStr = t; botStr = b; }
+}
+
+class Button {
+  float x, y, w, h; String label; color c;
+  Button(float x, float y, float w, float h, String label, color c) { this.x = x; this.y = y; this.w = w; this.h = h; this.label = label; this.c = c; }
+  void draw() {
+    stroke(0); strokeWeight(1); fill(c); rect(x, y, w, h, 10);
+    fill(255); textSize(min(w, h) * 0.35); text(label, x + w/2, y + h/2);
+  }
+  boolean isClicked(float mx, float my) { return (mx > x && mx < x+w && my > y && my < y+h); }
+}
+
+class CalcKey {
+  float x, y, w, h; String id, shiftText, alphaText; color baseCol, textCol; long flashUntil = 0;
+  CalcKey(String id, String sText, String aText, float x, float y, float w, float h, color bg, color tc) {
+    this.id = id; this.shiftText = sText; this.alphaText = aText; this.x = x; this.y = y; this.w = w; this.h = h;
+    this.baseCol = bg; this.textCol = tc; calcKeys.add(this); keyMap.put(id, this);
+  }
+  void draw() {
+    if (!shiftText.equals("")) { fill(255, 204, 0); textAlign(LEFT, BOTTOM); textSize(w * 0.22); text(shiftText, x, y - 2); }
+    if (!alphaText.equals("")) { fill(255, 100, 100); textAlign(RIGHT, BOTTOM); textSize(w * 0.22); text(alphaText, x + w, y - 2); }
+    strokeWeight(1); if (millis() < flashUntil) fill(0, 229, 255); else fill(baseCol);
+    rect(x, y, w, h, 6); fill(textCol); textAlign(CENTER, CENTER); textSize(min(w, h) * 0.4); text(id, x + w/2, y + h/2);
+  }
+  void flash() { flashUntil = millis() + 150; }
+  boolean isClicked(float mx, float my) { return (mx > x && mx < x+w && my > y && my < y+h); }
+}
+
+void initCalculatorKeys() {
+  float startY = height * 0.49; float kYGap = height * 0.058; float startX = width * 0.08;
+  float kWGap = width * 0.175; float kW = width * 0.14; float kH = height * 0.038;
+  color funcBg = color(59, 63, 66); color numBg = color(176, 180, 181); color delBg = color(217, 69, 95); color wht = color(255); color blk = color(0);
+  String[][][] layout = {
+    {{"SHIFT","",""}, {"ALPHA","",""}, {"MODE","CLR",""}, {"ON","",""}, {"REPL","",""}},
+    {{"x²","x³",""}, {"^","x√",""}, {"log","10^x",""}, {"ln","e^x",""}, {"√","³√",""}},
+    {{"(-)","A",""}, {"hyp","B","C"}, {"sin","sin⁻¹","D"}, {"cos","cos⁻¹","E"}, {"tan","tan⁻¹","F"}},
+    {{"RCL","STO",""}, {"ENG","←",""}, {"(","",""}, {")","X","Y"}, {"M+","M-","M"}},
+    {{"7","",""}, {"8","",""}, {"9","",""}, {"DEL","INS",""}, {"AC","OFF",""}},
+    {{"4","",""}, {"5","",""}, {"6","",""}, {"X","",""}, {"÷","",""}},
+    {{"1","Rnd",""}, {"2","Ran#",""}, {"3","",""}, {"+","DRG►",""}, {"-","►Re↔Im",""}},
+    {{"0","",""}, {".","",""}, {"EXP","π",""}, {"Ans","",""}, {"=","",""}}
+  };
+  for (int r = 0; r < layout.length; r++) {
+    for (int c = 0; c < layout[r].length; c++) {
+      String keyId = layout[r][c][0]; String sTxt = layout[r][c][1]; String aTxt = layout[r][c][2];
+      color bg = funcBg; color tc = wht;
+      if (r >= 4) { bg = numBg; tc = blk; }
+      if (keyId.equals("DEL") || keyId.equals("AC")) { bg = delBg; tc = wht; }
+      if (keyId.equals("SHIFT")) { bg = funcBg; tc = color(255, 204, 0); }
+      if (keyId.equals("ALPHA")) { bg = funcBg; tc = color(255, 100, 100); }
+      new CalcKey(keyId, sTxt, aTxt, startX + (c * kWGap), startY + (r * kYGap), kW, kH, bg, tc);
+    }
+  }
+}
