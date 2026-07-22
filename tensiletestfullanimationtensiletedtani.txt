@@ -1,0 +1,589 @@
+// Tensile Strength Test & Calculator Simulator
+// Android Processing (APDE) Code
+
+int currentScreen = 0; // 0=Table, 1=Auto-Simulator, 2=Steps Guide, 3=Formulas, 4=Math Anim
+
+// Screen 1 UI (Main Menu / Table)
+Button btnGoCalc, btnGoSteps, btnGoFormulas, btnGoMathAnim;
+
+// Shared Navigation & Tabs
+Button btnBack; 
+Button btnYield, btnUlt, btnNom, btnAct, btnElong, btnReduc, btnYoung;
+String currentMode = "Yield"; 
+
+// --------------------------------------------------------
+// SIMULATOR VARIABLES (Screen 1)
+// --------------------------------------------------------
+String stepLabel = "Waiting to Start...";
+String currentTopLcd = "";
+String currentBotLcd = "0.";
+Button btnSpeedDown, btnSpeedUp;
+float simSpeed = 1.0; 
+boolean isShiftActive = false; 
+boolean isAlphaActive = false; 
+ArrayList<CalcKey> calcKeys = new ArrayList<CalcKey>();
+HashMap<String, CalcKey> keyMap = new HashMap<String, CalcKey>();
+boolean isSimulating = false;
+ArrayList<SeqBlock> activeSeq = new ArrayList<SeqBlock>();
+int animSeqIndex = 0;
+int animKeyIndex = 0;
+long nextActionTime = 0;
+
+// --------------------------------------------------------
+// MATH ANIMATION VARIABLES (Screen 4)
+// --------------------------------------------------------
+int mathState = 0; 
+long mathStateTimer = 0;
+int mathDuration = 2200;
+Button btnReplayMath;
+
+String mTopLabel="", mTopSub="", mNumLabel="", mNumSub="", mNumRes="";
+String mDenLabel="", mDenSub="", mDenRes="", mBotSub="", mBotRes="";
+
+void setup() {
+  fullScreen();
+  orientation(PORTRAIT);
+  textAlign(CENTER, CENTER);
+  
+  // Initialize Main Menu Buttons
+  btnGoCalc     = new Button(width*0.1, height * 0.67, width*0.8, height*0.065, "Go to Auto-Simulator", color(25, 118, 210));
+  btnGoSteps    = new Button(width*0.1, height * 0.75, width*0.8, height*0.065, "View Step-by-Step Guide", color(40, 167, 69));
+  btnGoFormulas = new Button(width*0.1, height * 0.83, width*0.8, height*0.065, "View Formulas & Constants", color(142, 68, 173));
+  btnGoMathAnim = new Button(width*0.1, height * 0.91, width*0.8, height*0.065, "Visual Math Flow Animation", color(230, 126, 34));
+  
+  btnBack = new Button(width*0.03, height*0.015, width*0.20, height*0.05, "< Back", color(200, 50, 50));
+  btnReplayMath = new Button(width*0.75, height*0.015, width*0.22, height*0.05, "Replay", color(52, 73, 94));
+  
+  // 7 Top Tabs for Tensile Parameters (2 Rows)
+  float r1Y = height * 0.08;
+  float r2Y = height * 0.14;
+  float gap = width * 0.02;
+  float bw1 = (width * 0.96 - (3 * gap)) / 4; 
+  float bw2 = (width * 0.96 - (2 * gap)) / 3;
+  
+  btnYield = new Button(width*0.02, r1Y, bw1, height*0.05, "Yield", color(243, 156, 18));
+  btnUlt   = new Button(width*0.02 + bw1 + gap, r1Y, bw1, height*0.05, "Ult", color(211, 84, 0));
+  btnNom   = new Button(width*0.02 + 2*(bw1 + gap), r1Y, bw1, height*0.05, "Nom", color(192, 57, 43));
+  btnAct   = new Button(width*0.02 + 3*(bw1 + gap), r1Y, bw1, height*0.05, "Act", color(142, 68, 173));
+  btnElong = new Button(width*0.02, r2Y, bw2, height*0.05, "% Elong", color(41, 128, 185));
+  btnReduc = new Button(width*0.02 + bw2 + gap, r2Y, bw2, height*0.05, "% Reduc", color(39, 174, 96));
+  btnYoung = new Button(width*0.02 + 2*(bw2 + gap), r2Y, bw2, height*0.05, "Young's", color(44, 62, 80));
+  
+  // Speed Controls
+  btnSpeedDown = new Button(width*0.05, height*0.265, width*0.25, height*0.045, "Slower (-)", color(108, 117, 125));
+  btnSpeedUp   = new Button(width*0.70, height*0.265, width*0.25, height*0.045, "Faster (+)", color(108, 117, 125));
+  
+  initCalculatorKeys();
+}
+
+void draw() {
+  background(233, 236, 239);
+  
+  if (currentScreen == 0) drawTableScreen();
+  else if (currentScreen == 1) { drawCalcScreen(); updateSimulation(); }
+  else if (currentScreen == 2) drawStepsScreen();
+  else if (currentScreen == 3) drawFormulaScreen();
+  else if (currentScreen == 4) { drawMathAnimScreen(); updateMathAnim(); }
+}
+
+void drawTopTabs() {
+  btnYield.draw(currentMode.equals("Yield"));
+  btnUlt.draw(currentMode.equals("Ult"));
+  btnNom.draw(currentMode.equals("Nom"));
+  btnAct.draw(currentMode.equals("Act"));
+  btnElong.draw(currentMode.equals("Elong"));
+  btnReduc.draw(currentMode.equals("Reduc"));
+  btnYoung.draw(currentMode.equals("Young"));
+}
+
+// --------------------------------------------------------
+// SCREEN 0: TABLE VIEW (Tensile Test Data)
+// --------------------------------------------------------
+void drawTableScreen() {
+  fill(44, 62, 80); textSize(width * 0.07); text("Tensile Strength Test", width/2, height * 0.05);
+  
+  // Given Data Box
+  fill(255, 253, 231); stroke(200); strokeWeight(2);
+  rect(width*0.05, height*0.09, width*0.9, height*0.23, 10);
+  fill(0); textSize(width * 0.042); textAlign(LEFT, TOP);
+  String givenData = "Given Data:\n\n" +
+                     " l = 300 mm           Yield Load = 23.5 kN\n" +
+                     " l' = 420 mm          Ult Load = 28 kN\n" +
+                     " d = 10 mm            Breaking = 26.5 kN\n" +
+                     " d' = 8 mm            Strain (e) = 0.00125";
+  text(givenData, width*0.08, height*0.10);
+  
+  // Results Table Box
+  float startY = height * 0.34; float rowH = height * 0.043;
+  String[][] results = {
+    {"1. Yield Stress", "299 N/mm²"},
+    {"2. Ultimate Stress", "356 N/mm²"},
+    {"3. Nominal Breaking Stress", "337 N/mm²"},
+    {"4. Actual Breaking Stress", "527 N/mm²"},
+    {"5. % of Elongation", "40 %"},
+    {"6. % of Reduction in Area", "36 %"},
+    {"7. Young's Modulus (E)", "2.392 x 10⁵ N/mm²"}
+  };
+  
+  fill(44, 62, 80); rect(width*0.05, startY, width*0.9, rowH, 10); 
+  fill(255); textAlign(CENTER, CENTER); text("Calculated Results", width/2, startY + rowH/2);
+  
+  for(int i=0; i<7; i++) {
+    float ry = startY + rowH + (i * rowH);
+    fill((i%2==0) ? 255 : 240); rect(width*0.05, ry, width*0.9, rowH);
+    fill(0); textAlign(LEFT, CENTER); textSize(width * 0.035);
+    text(results[i][0], width*0.08, ry + rowH/2);
+    textAlign(RIGHT, CENTER); text(results[i][1], width*0.92, ry + rowH/2);
+  }
+  
+  textAlign(CENTER, CENTER); 
+  btnGoCalc.draw(false); btnGoSteps.draw(false); btnGoFormulas.draw(false); btnGoMathAnim.draw(false);
+}
+
+// --------------------------------------------------------
+// SCREEN 1: AUTO CALCULATOR SIMULATOR
+// --------------------------------------------------------
+void drawCalcScreen() {
+  btnBack.draw(false);
+  fill(44, 62, 80); textSize(width * 0.045); text("Auto Flow Simulator", width*0.65, height*0.04);
+  
+  drawTopTabs();
+  
+  fill(248, 249, 250); stroke(200); rect(width*0.05, height*0.20, width*0.9, height*0.055, 8);
+  fill(40, 167, 69); textSize(width * 0.035); text(stepLabel, width/2, height*0.228);
+  
+  btnSpeedDown.draw(false); btnSpeedUp.draw(false);
+  fill(44, 62, 80); textSize(width * 0.035); text("Speed: " + nf(simSpeed, 1, 1) + "x", width/2, height*0.285);
+  
+  float calcY = height * 0.32; float calcH = height * 0.67;
+  fill(34, 38, 41); rect(width*0.05, calcY, width*0.9, calcH, 20, 20, 50, 50);
+  fill(255); textSize(width * 0.038); text("MAHARAJA POLYTECHNIC CALCULATOR", width/2, calcY + height*0.03);
+  
+  fill(156, 181, 156); stroke(10); strokeWeight(4); rect(width*0.1, calcY + height*0.055, width*0.8, height*0.085, 5);
+  textAlign(LEFT, TOP); textSize(width * 0.03); fill(30);
+  if (isShiftActive) text("S", width*0.11, calcY + height*0.06);
+  textSize(width * 0.045); text(currentTopLcd, width*0.12, calcY + height*0.08);
+  textAlign(RIGHT, BOTTOM); textSize(width * 0.07); text(currentBotLcd, width*0.88, calcY + height*0.135);
+  
+  textAlign(CENTER, CENTER);
+  for (CalcKey k : calcKeys) k.draw();
+}
+
+// --------------------------------------------------------
+// SCREEN 2: STEP-BY-STEP KEY SEQUENCE
+// --------------------------------------------------------
+void drawStepsScreen() {
+  btnBack.draw(false);
+  fill(44, 62, 80); textSize(width * 0.045); text("Button Press Guide", width*0.65, height*0.04);
+  
+  drawTopTabs();
+  
+  fill(255); stroke(200); rect(width*0.02, height*0.21, width*0.96, height*0.77, 10);
+  
+  float startY = height * 0.23; float gap = height * 0.16;
+  String[][] steps = getStepsFor(currentMode);
+  
+  textAlign(LEFT, TOP);
+  for(int i = 0; i < steps.length; i++) {
+     fill(44, 62, 80); textSize(width * 0.038); text(steps[i][0], width * 0.05, startY + (i * gap));
+     fill(192, 57, 43); textSize(width * 0.035); text(steps[i][1], width * 0.05, startY + (i * gap) + height*0.035);
+     fill(40, 167, 69); textSize(width * 0.035); text(steps[i][2], width * 0.05, startY + (i * gap) + height*0.075);
+     if (i < steps.length - 1) {
+       stroke(220); line(width*0.05, startY + (i * gap) + height*0.135, width*0.95, startY + (i * gap) + height*0.135);
+     }
+  }
+  textAlign(CENTER, CENTER);
+}
+
+// --------------------------------------------------------
+// SCREEN 3: FORMULAS & CONSTANTS
+// --------------------------------------------------------
+void drawFormulaScreen() {
+  btnBack.draw(false);
+  fill(44, 62, 80); textSize(width * 0.06); text("Formulas & Constants", width/2, height * 0.05);
+  fill(255); stroke(200); rect(width*0.04, height*0.10, width*0.92, height*0.87, 15);
+
+  textAlign(LEFT, TOP);
+  float textX = width * 0.07; float textY = height * 0.12; float lineSp = height * 0.045;
+
+  fill(0); textSize(width * 0.045); text("1. Stress Formulas:", textX, textY);
+  fill(80); textSize(width * 0.038); 
+  text("• Yield Stress = Yield Load / Actual Area", textX, textY + lineSp); 
+  text("• Ultimate Stress = Ult Load / Actual Area", textX, textY + lineSp*2);
+  text("• Nom Break Stress = Break Load / Actual Area", textX, textY + lineSp*3);
+  text("• Act Break Stress = Break Load / Neck Area", textX, textY + lineSp*4);
+
+  fill(0); textSize(width * 0.045); text("2. Area Formulas:", textX, textY + lineSp*5.5);
+  fill(80); textSize(width * 0.038); 
+  text("• Actual Area = (π/4) * d²  = (π/4) * 10²", textX, textY + lineSp*6.5);
+  text("• Neck Area = (π/4) * d'² = (π/4) * 8²", textX, textY + lineSp*7.5);
+
+  fill(0); textSize(width * 0.045); text("3. Percentages:", textX, textY + lineSp*9.0);
+  fill(80); textSize(width * 0.038); 
+  text("• % Elong = ((l' - l) / l) * 100", textX, textY + lineSp*10.0);
+  text("• % Reduc = ((d² - d'²) / d²) * 100", textX, textY + lineSp*11.0);
+
+  fill(0); textSize(width * 0.045); text("4. Young's Modulus:", textX, textY + lineSp*12.5);
+  fill(80); textSize(width * 0.038); 
+  text("• E = Yield Stress / Strain (e)", textX, textY + lineSp*13.5);
+  
+  fill(0); textSize(width * 0.045); text("5. Load Conversions:", textX, textY + lineSp*15.0);
+  fill(80); textSize(width * 0.038); 
+  text("• kN ➔ N (Multiply by 10³ or 1000)", textX, textY + lineSp*16.0);
+}
+
+// --------------------------------------------------------
+// SCREEN 4: VISUAL MATH FLOW (BODMAS ANIMATION)
+// --------------------------------------------------------
+void setupMathData(String mode) {
+  if (mode.equals("Yield")) {
+    mTopLabel = "Yield Stress = Yield Load / Actual Area"; mTopSub = "23.5 x 10³ / (π/4 x 10²)";
+    mNumLabel = "Yield Load (N)"; mNumSub = "23.5 x 1000"; mNumRes = "23500";
+    mDenLabel = "Actual Area (mm²)"; mDenSub = "π/4 x 100"; mDenRes = "78.54";
+    mBotSub = "23500 / 78.54"; mBotRes = "299 N/mm²";
+  } else if (mode.equals("Ult")) {
+    mTopLabel = "Ult Stress = Ult Load / Actual Area"; mTopSub = "28 x 10³ / (π/4 x 10²)";
+    mNumLabel = "Ult Load (N)"; mNumSub = "28 x 1000"; mNumRes = "28000";
+    mDenLabel = "Actual Area (mm²)"; mDenSub = "π/4 x 100"; mDenRes = "78.54";
+    mBotSub = "28000 / 78.54"; mBotRes = "356 N/mm²";
+  } else if (mode.equals("Nom")) {
+    mTopLabel = "Nom Break Stress = Break Load / Actual Area"; mTopSub = "26.5 x 10³ / (π/4 x 10²)";
+    mNumLabel = "Break Load (N)"; mNumSub = "26.5 x 1000"; mNumRes = "26500";
+    mDenLabel = "Actual Area (mm²)"; mDenSub = "π/4 x 100"; mDenRes = "78.54";
+    mBotSub = "26500 / 78.54"; mBotRes = "337 N/mm²";
+  } else if (mode.equals("Act")) {
+    mTopLabel = "Act Break Stress = Break Load / Neck Area"; mTopSub = "26.5 x 10³ / (π/4 x 8²)";
+    mNumLabel = "Break Load (N)"; mNumSub = "26.5 x 1000"; mNumRes = "26500";
+    mDenLabel = "Neck Area (mm²)"; mDenSub = "π/4 x 64"; mDenRes = "50.26";
+    mBotSub = "26500 / 50.26"; mBotRes = "527 N/mm²";
+  } else if (mode.equals("Elong")) {
+    mTopLabel = "% Elongation = (l' - l) / l  * 100"; mTopSub = "(420 - 300) / 300  * 100";
+    mNumLabel = "Change in length (Δl)"; mNumSub = "420 - 300"; mNumRes = "120";
+    mDenLabel = "Original Length (l)"; mDenSub = "300"; mDenRes = "300";
+    mBotSub = "(120 / 300) x 100"; mBotRes = "40 %";
+  } else if (mode.equals("Reduc")) {
+    mTopLabel = "% Reduction = (d² - d'²) / d²  * 100"; mTopSub = "(10² - 8²) / 10²  * 100";
+    mNumLabel = "Area Diff Ratio (ΔA)"; mNumSub = "100 - 64"; mNumRes = "36";
+    mDenLabel = "Original Area Ratio"; mDenSub = "10²"; mDenRes = "100";
+    mBotSub = "(36 / 100) x 100"; mBotRes = "36 %";
+  } else if (mode.equals("Young")) {
+    mTopLabel = "Young's Mod (E) = Yield Stress / Strain"; mTopSub = "299 / 0.00125";
+    mNumLabel = "Yield Stress"; mNumSub = "299"; mNumRes = "299";
+    mDenLabel = "Strain (e)"; mDenSub = "0.00125"; mDenRes = "0.00125";
+    mBotSub = "299 / 0.00125"; mBotRes = "2.392 x 10⁵";
+  }
+}
+
+void startMathAnim() {
+  setupMathData(currentMode);
+  mathState = 0;
+  mathStateTimer = millis();
+}
+
+void updateMathAnim() {
+  if (millis() - mathStateTimer > mathDuration) {
+    mathState++;
+    if (mathState > 7) mathState = 7;
+    mathStateTimer = millis();
+  }
+}
+
+void drawArrow(float x1, float y1, float x2, float y2) {
+  stroke(41, 128, 185); strokeWeight(4); line(x1, y1, x2, y2);
+  pushMatrix(); translate(x2, y2); rotate(atan2(y1-y2, x1-x2));
+  fill(41, 128, 185); noStroke(); triangle(0, 0, 15, 8, 15, -8); popMatrix();
+}
+
+void drawMathAnimScreen() {
+  btnBack.draw(false); btnReplayMath.draw(false);
+  drawTopTabs();
+  
+  fill(44, 62, 80); textSize(width * 0.05); text("BODMAS Step Visualization", width/2, height*0.22);
+  
+  float p = constrain((float)(millis() - mathStateTimer) / mathDuration, 0, 1);
+  float topY = height*0.32; float midY = height*0.57; float botY = height*0.82;
+  
+  // 1. TOP BOX (Main Formula)
+  if (mathState <= 2) {
+    fill(236, 240, 241); stroke(189, 195, 199); strokeWeight(2);
+    rect(width*0.05, height*0.25, width*0.9, height*0.14, 10);
+    fill(41, 128, 185); textSize(width*0.04);
+    if (mathState == 0) text(mTopLabel, width*0.5, topY);
+    if (mathState == 1) text(mTopSub, width*0.5, topY);
+  }
+  
+  // 2. THROWING TO MID BOXES
+  if (mathState == 2) {
+    drawArrow(width*0.3, topY+height*0.07, width*0.25, midY-height*0.06); 
+    drawArrow(width*0.7, topY+height*0.07, width*0.75, midY-height*0.06); 
+    float lx = lerp(width*0.5, width*0.25, p); float ly = lerp(topY, midY, p);
+    float rx = lerp(width*0.5, width*0.75, p); float ry = lerp(topY, midY, p);
+    fill(192, 57, 43); textSize(width*0.035); text(mNumSub, lx, ly); text(mDenSub, rx, ry);
+  }
+  
+  // 3. SOLVING IN MID BOXES
+  if (mathState >= 3 && mathState <= 5) {
+    fill(253, 235, 208); stroke(243, 156, 18); rect(width*0.02, height*0.48, width*0.46, height*0.18, 10);
+    fill(0); textSize(width*0.035); text(mNumLabel, width*0.25, height*0.51);
+    if (mathState == 3) { fill(192, 57, 43); textSize(width*0.035); text(mNumSub, width*0.25, midY + height*0.03); } 
+    else { fill(39, 174, 96); textSize(width*0.05); text(mNumRes, width*0.25, midY + height*0.03); }
+    
+    fill(212, 230, 241); stroke(41, 128, 185); rect(width*0.52, height*0.48, width*0.46, height*0.18, 10);
+    fill(0); textSize(width*0.035); text(mDenLabel, width*0.75, height*0.51);
+    if (mathState == 3) { fill(192, 57, 43); textSize(width*0.035); text(mDenSub, width*0.75, midY + height*0.03); } 
+    else { fill(39, 174, 96); textSize(width*0.05); text(mDenRes, width*0.75, midY + height*0.03); }
+  }
+  
+  // 4. THROWING TO BOT BOX
+  if (mathState == 5) {
+    drawArrow(width*0.25, midY+height*0.09, width*0.5, botY-height*0.09);
+    drawArrow(width*0.75, midY+height*0.09, width*0.5, botY-height*0.09);
+    float lx = lerp(width*0.25, width*0.5, p); float ly = lerp(midY, botY - height*0.04, p);
+    float rx = lerp(width*0.75, width*0.5, p); float ry = lerp(midY, botY + height*0.04, p);
+    fill(39, 174, 96); textSize(width*0.04); text(mNumRes, lx, ly); text(mDenRes, rx, ry);
+  }
+  
+  // 5. SOLVING BOT BOX (Final)
+  if (mathState >= 6) {
+    fill(233, 247, 239); stroke(39, 174, 96); strokeWeight(3);
+    rect(width*0.1, height*0.73, width*0.8, height*0.18, 10);
+    if (mathState == 6) {
+      fill(41, 128, 185); textSize(width*0.05); text("Combine: " + mBotSub, width*0.5, botY);
+    } else if (mathState >= 7) {
+      fill(142, 68, 173); textSize(width*0.07); text("Ans = " + mBotRes, width*0.5, botY);
+    }
+  }
+}
+
+// --------------------------------------------------------
+// DATA PROVIDER (Used by Screen 2)
+// --------------------------------------------------------
+String[][] getStepsFor(String mode) {
+  if (mode.equals("Yield")) {
+     return new String[][] {
+       {"Step 1: Calculate Yield Load Numerator", "Formula: 23.5 * 1000", "[2][3][.][5] [X] [1][0][0][0] [=]\n➔ 23500"},
+       {"Step 2: Calculate Actual Area Denom", "Formula: (π / 4) * 10²", "[SHIFT][EXP] [÷] [4] [X] [1][0] [x²] [=]\n➔ 78.539"},
+       {"Step 3: Yield Stress (Num ÷ Denom)", "Formula: 23500 ÷ 78.539", "[2][3][5][0][0] [÷] [Ans] [=]\n➔ 299 N/mm²"}
+     };
+  } else if (mode.equals("Ult")) {
+     return new String[][] {
+       {"Step 1: Calculate Ultimate Load Numerator", "Formula: 28 * 1000", "[2][8] [X] [1][0][0][0] [=]\n➔ 28000"},
+       {"Step 2: Calculate Actual Area Denom", "Formula: (π / 4) * 10²", "[SHIFT][EXP] [÷] [4] [X] [1][0] [x²] [=]\n➔ 78.539"},
+       {"Step 3: Ultimate Stress (Num ÷ Denom)", "Formula: 28000 ÷ 78.539", "[2][8][0][0][0] [÷] [Ans] [=]\n➔ 356 N/mm²"}
+     };
+  } else if (mode.equals("Nom")) {
+     return new String[][] {
+       {"Step 1: Calculate Breaking Load Num", "Formula: 26.5 * 1000", "[2][6][.][5] [X] [1][0][0][0] [=]\n➔ 26500"},
+       {"Step 2: Calculate Actual Area Denom", "Formula: (π / 4) * 10²", "[SHIFT][EXP] [÷] [4] [X] [1][0] [x²] [=]\n➔ 78.539"},
+       {"Step 3: Nominal Stress (Num ÷ Denom)", "Formula: 26500 ÷ 78.539", "[2][6][5][0][0] [÷] [Ans] [=]\n➔ 337 N/mm²"}
+     };
+  } else if (mode.equals("Act")) {
+     return new String[][] {
+       {"Step 1: Calculate Breaking Load Num", "Formula: 26.5 * 1000", "[2][6][.][5] [X] [1][0][0][0] [=]\n➔ 26500"},
+       {"Step 2: Calculate Neck Area Denom", "Formula: (π / 4) * 8²", "[SHIFT][EXP] [÷] [4] [X] [8] [x²] [=]\n➔ 50.265"},
+       {"Step 3: Actual Stress (Num ÷ Denom)", "Formula: 26500 ÷ 50.265", "[2][6][5][0][0] [÷] [Ans] [=]\n➔ 527 N/mm²"}
+     };
+  } else if (mode.equals("Elong")) {
+     return new String[][] {
+       {"Step 1: Change in length (Δl)", "Formula: (420 - 300)", "[(] [4][2][0] [-] [3][0][0] [)] [=]\n➔ 120"},
+       {"Step 2: % Elongation (Δl ÷ l * 100)", "Formula: 120 ÷ 300 * 100", "[Ans] [÷] [3][0][0] [X] [1][0][0] [=]\n➔ 40 %"}
+     };
+  } else if (mode.equals("Reduc")) {
+     return new String[][] {
+       {"Step 1: Area diff proportional (d² - d'²)", "Formula: (10² - 8²)", "[(] [1][0] [x²] [-] [8] [x²] [)] [=]\n➔ 36"},
+       {"Step 2: % Reduction (Diff ÷ Orig * 100)", "Formula: 36 ÷ 10² * 100", "[Ans] [÷] [1][0] [x²] [X] [1][0][0] [=]\n➔ 36 %"}
+     };
+  } else {
+     return new String[][] {
+       {"Step 1: Calculate Young's Modulus", "Formula: 299 ÷ 0.00125", "[2][9][9] [÷] [0][.][0][0][1][2][5] [=]\n➔ 239200"},
+       {"Step 2: Format to Standard Form", "Formula: 239200 ÷ 100000", "[Ans] [÷] [1][0][0][0][0][0] [=]\n➔ 2.392 (x 10⁵)"}
+     };
+  }
+}
+
+// --------------------------------------------------------
+// AUTO-SIMULATOR ENGINE
+// --------------------------------------------------------
+void updateSimulation() {
+  if (!isSimulating) return;
+  if (millis() > nextActionTime) {
+    if (animSeqIndex >= activeSeq.size()) { isSimulating = false; isShiftActive = false; return; }
+    SeqBlock block = activeSeq.get(animSeqIndex);
+    if (animKeyIndex < block.keys.length) {
+      String keyStr = block.keys[animKeyIndex];
+      if (keyMap.containsKey(keyStr)) keyMap.get(keyStr).flash(); 
+      if (keyStr.equals("SHIFT")) isShiftActive = true;
+      else {
+        if (!keyStr.equals("=") && !keyStr.equals("AC")) {
+          String disp = keyStr;
+          if (isShiftActive) { if (disp.equals("EXP")) disp = "π"; isShiftActive = false; }
+          if (disp.equals("X")) disp = "*";
+          currentTopLcd += disp;
+        } else if (keyStr.equals("AC")) {
+          currentTopLcd = ""; isShiftActive = false;
+        }
+      }
+      animKeyIndex++; nextActionTime = millis() + (long)(450 / simSpeed); 
+    } else {
+      currentTopLcd = block.topStr; currentBotLcd = block.botStr;
+      animKeyIndex = 0; animSeqIndex++; nextActionTime = millis() + (long)(1500 / simSpeed); 
+    }
+  }
+}
+
+void startSimulation(String mode) {
+  isSimulating = true; isShiftActive = false; animSeqIndex = 0; animKeyIndex = 0;
+  currentTopLcd = ""; currentBotLcd = "0."; activeSeq.clear();
+  
+  if (mode.equals("Yield")) {
+    stepLabel = "1. Yield Stress";
+    activeSeq.add(new SeqBlock(new String[]{"2", "3", ".", "5", "X", "1", "0", "0", "0", "="}, "23.5*1000", "23500."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "SHIFT", "EXP", "÷", "4", "X", "1", "0", "x²", "="}, "π÷4*10²", "78.5398"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "2", "3", "5", "0", "0", "÷", "Ans", "="}, "23500÷Ans", "299.21"));
+  } 
+  else if (mode.equals("Ult")) {
+    stepLabel = "2. Ultimate Stress";
+    activeSeq.add(new SeqBlock(new String[]{"2", "8", "X", "1", "0", "0", "0", "="}, "28*1000", "28000."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "SHIFT", "EXP", "÷", "4", "X", "1", "0", "x²", "="}, "π÷4*10²", "78.5398"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "2", "8", "0", "0", "0", "÷", "Ans", "="}, "28000÷Ans", "356.50"));
+  }
+  else if (mode.equals("Nom")) {
+    stepLabel = "3. Nominal Breaking Stress";
+    activeSeq.add(new SeqBlock(new String[]{"2", "6", ".", "5", "X", "1", "0", "0", "0", "="}, "26.5*1000", "26500."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "SHIFT", "EXP", "÷", "4", "X", "1", "0", "x²", "="}, "π÷4*10²", "78.5398"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "2", "6", "5", "0", "0", "÷", "Ans", "="}, "26500÷Ans", "337.40"));
+  }
+  else if (mode.equals("Act")) {
+    stepLabel = "4. Actual Breaking Stress";
+    activeSeq.add(new SeqBlock(new String[]{"2", "6", ".", "5", "X", "1", "0", "0", "0", "="}, "26.5*1000", "26500."));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "SHIFT", "EXP", "÷", "4", "X", "8", "x²", "="}, "π÷4*8²", "50.2654"));
+    activeSeq.add(new SeqBlock(new String[]{"AC", "2", "6", "5", "0", "0", "÷", "Ans", "="}, "26500÷Ans", "527.20"));
+  }
+  else if (mode.equals("Elong")) {
+    stepLabel = "5. % Elongation in Length";
+    activeSeq.add(new SeqBlock(new String[]{"(", "4", "2", "0", "-", "3", "0", "0", ")", "="}, "(420-300)", "120."));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "3", "0", "0", "X", "1", "0", "0", "="}, "Ans÷300*100", "40."));
+  }
+  else if (mode.equals("Reduc")) {
+    stepLabel = "6. % Reduction in Area";
+    activeSeq.add(new SeqBlock(new String[]{"(", "1", "0", "x²", "-", "8", "x²", ")", "="}, "(10²-8²)", "36."));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "x²", "X", "1", "0", "0", "="}, "Ans÷10²*100", "36."));
+  }
+  else if (mode.equals("Young")) {
+    stepLabel = "7. Young's Modulus (E)";
+    activeSeq.add(new SeqBlock(new String[]{"2", "9", "9", "÷", "0", ".", "0", "0", "1", "2", "5", "="}, "299÷0.00125", "239200."));
+    activeSeq.add(new SeqBlock(new String[]{"Ans", "÷", "1", "0", "0", "0", "0", "0", "="}, "Ans÷100000", "2.392"));
+  }
+  nextActionTime = millis() + 500;
+}
+
+// --------------------------------------------------------
+// INPUT HANDLING
+// --------------------------------------------------------
+void mousePressed() {
+  if (currentScreen == 0) {
+    if (btnGoCalc.isClicked(mouseX, mouseY)) currentScreen = 1;
+    if (btnGoSteps.isClicked(mouseX, mouseY)) currentScreen = 2;
+    if (btnGoFormulas.isClicked(mouseX, mouseY)) currentScreen = 3;
+    if (btnGoMathAnim.isClicked(mouseX, mouseY)) { currentScreen = 4; startMathAnim(); }
+  } else if (currentScreen == 1) {
+    if (btnBack.isClicked(mouseX, mouseY)) { currentScreen = 0; isSimulating = false; isShiftActive = false; }
+    if (btnSpeedDown.isClicked(mouseX, mouseY)) simSpeed = max(0.5, simSpeed - 0.5); 
+    if (btnSpeedUp.isClicked(mouseX, mouseY)) simSpeed = min(3.0, simSpeed + 0.5); 
+    
+    if (btnYield.isClicked(mouseX, mouseY)) { currentMode="Yield"; startSimulation(currentMode); }
+    if (btnUlt.isClicked(mouseX, mouseY)) { currentMode="Ult"; startSimulation(currentMode); }
+    if (btnNom.isClicked(mouseX, mouseY)) { currentMode="Nom"; startSimulation(currentMode); }
+    if (btnAct.isClicked(mouseX, mouseY)) { currentMode="Act"; startSimulation(currentMode); }
+    if (btnElong.isClicked(mouseX, mouseY)) { currentMode="Elong"; startSimulation(currentMode); }
+    if (btnReduc.isClicked(mouseX, mouseY)) { currentMode="Reduc"; startSimulation(currentMode); }
+    if (btnYoung.isClicked(mouseX, mouseY)) { currentMode="Young"; startSimulation(currentMode); }
+    
+    for (CalcKey k : calcKeys) if (k.isClicked(mouseX, mouseY)) k.flash();
+  } else if (currentScreen == 2) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+    
+    if (btnYield.isClicked(mouseX, mouseY)) currentMode = "Yield";
+    if (btnUlt.isClicked(mouseX, mouseY)) currentMode = "Ult";
+    if (btnNom.isClicked(mouseX, mouseY)) currentMode = "Nom";
+    if (btnAct.isClicked(mouseX, mouseY)) currentMode = "Act";
+    if (btnElong.isClicked(mouseX, mouseY)) currentMode = "Elong";
+    if (btnReduc.isClicked(mouseX, mouseY)) currentMode = "Reduc";
+    if (btnYoung.isClicked(mouseX, mouseY)) currentMode = "Young";
+  } else if (currentScreen == 3) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+  } else if (currentScreen == 4) {
+    if (btnBack.isClicked(mouseX, mouseY)) currentScreen = 0;
+    if (btnReplayMath.isClicked(mouseX, mouseY)) startMathAnim();
+    
+    if (btnYield.isClicked(mouseX, mouseY)) { currentMode = "Yield"; startMathAnim(); }
+    if (btnUlt.isClicked(mouseX, mouseY)) { currentMode = "Ult"; startMathAnim(); }
+    if (btnNom.isClicked(mouseX, mouseY)) { currentMode = "Nom"; startMathAnim(); }
+    if (btnAct.isClicked(mouseX, mouseY)) { currentMode = "Act"; startMathAnim(); }
+    if (btnElong.isClicked(mouseX, mouseY)) { currentMode = "Elong"; startMathAnim(); }
+    if (btnReduc.isClicked(mouseX, mouseY)) { currentMode = "Reduc"; startMathAnim(); }
+    if (btnYoung.isClicked(mouseX, mouseY)) { currentMode = "Young"; startMathAnim(); }
+  }
+}
+
+// --------------------------------------------------------
+// DATA CLASSES & UI HELPERS
+// --------------------------------------------------------
+class SeqBlock {
+  String[] keys; String topStr, botStr;
+  SeqBlock(String[] k, String t, String b) { keys = k; topStr = t; botStr = b; }
+}
+
+class Button {
+  float x, y, w, h; String label; color c;
+  Button(float x, float y, float w, float h, String label, color c) { this.x = x; this.y = y; this.w = w; this.h = h; this.label = label; this.c = c; }
+  void draw(boolean isActive) {
+    stroke(isActive ? 255 : 0); strokeWeight(isActive ? 3 : 1);
+    fill(c); rect(x, y, w, h, 10);
+    fill(255); textSize(min(w, h) * 0.35); text(label, x + w/2, y + h/2);
+  }
+  boolean isClicked(float mx, float my) { return (mx > x && mx < x+w && my > y && my < y+h); }
+}
+
+class CalcKey {
+  float x, y, w, h; String id, shiftText, alphaText; color baseCol, textCol; long flashUntil = 0;
+  CalcKey(String id, String sText, String aText, float x, float y, float w, float h, color bg, color tc) {
+    this.id = id; this.shiftText = sText; this.alphaText = aText; this.x = x; this.y = y; this.w = w; this.h = h;
+    this.baseCol = bg; this.textCol = tc; calcKeys.add(this); keyMap.put(id, this);
+  }
+  void draw() {
+    if (!shiftText.equals("")) { fill(255, 204, 0); textAlign(LEFT, BOTTOM); textSize(w * 0.22); text(shiftText, x, y - 2); }
+    if (!alphaText.equals("")) { fill(255, 100, 100); textAlign(RIGHT, BOTTOM); textSize(w * 0.22); text(alphaText, x + w, y - 2); }
+    strokeWeight(1); if (millis() < flashUntil) fill(0, 229, 255); else fill(baseCol);
+    rect(x, y, w, h, 6); fill(textCol); textAlign(CENTER, CENTER); textSize(min(w, h) * 0.4); text(id, x + w/2, y + h/2);
+  }
+  void flash() { flashUntil = millis() + 150; }
+  boolean isClicked(float mx, float my) { return (mx > x && mx < x+w && my > y && my < y+h); }
+}
+
+void initCalculatorKeys() {
+  float startY = height * 0.49; float kYGap = height * 0.057; float startX = width * 0.08;
+  float kWGap = width * 0.175; float kW = width * 0.14; float kH = height * 0.038;
+  color funcBg = color(59, 63, 66); color numBg = color(176, 180, 181); color delBg = color(217, 69, 95); color wht = color(255); color blk = color(0);
+  String[][][] layout = {
+    {{"SHIFT","",""}, {"ALPHA","",""}, {"MODE","CLR",""}, {"ON","",""}, {"REPL","",""}},
+    {{"x²","x³",""}, {"^","x√",""}, {"log","10^x",""}, {"ln","e^x",""}, {"√","³√",""}},
+    {{"(-)","A",""}, {"hyp","B","C"}, {"sin","sin⁻¹","D"}, {"cos","cos⁻¹","E"}, {"tan","tan⁻¹","F"}},
+    {{"RCL","STO",""}, {"ENG","←",""}, {"(","",""}, {")","X","Y"}, {"M+","M-","M"}},
+    {{"7","",""}, {"8","",""}, {"9","",""}, {"DEL","INS",""}, {"AC","OFF",""}},
+    {{"4","",""}, {"5","",""}, {"6","",""}, {"X","",""}, {"÷","",""}},
+    {{"1","Rnd",""}, {"2","Ran#",""}, {"3","",""}, {"+","DRG►",""}, {"-","►Re↔Im",""}},
+    {{"0","",""}, {".","",""}, {"EXP","π",""}, {"Ans","",""}, {"=","",""}}
+  };
+  for (int r = 0; r < layout.length; r++) {
+    for (int c = 0; c < layout[r].length; c++) {
+      String keyId = layout[r][c][0]; String sTxt = layout[r][c][1]; String aTxt = layout[r][c][2];
+      color bg = funcBg; color tc = wht;
+      if (r >= 4) { bg = numBg; tc = blk; }
+      if (keyId.equals("DEL") || keyId.equals("AC")) { bg = delBg; tc = wht; }
+      if (keyId.equals("SHIFT")) { bg = funcBg; tc = color(255, 204, 0); }
+      if (keyId.equals("ALPHA")) { bg = funcBg; tc = color(255, 100, 100); }
+      new CalcKey(keyId, sTxt, aTxt, startX + (c * kWGap), startY + (r * kYGap), kW, kH, bg, tc);
+    }
+  }
+}
